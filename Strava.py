@@ -36,6 +36,10 @@
 # To re-export your variables:
 #     source variables
 #
+# To setup your environment:
+#     ./configure
+#     source env/bin/activate
+#
 # Step #3
 #     # Run the program!
 #     python3 ./Strava.py --clientid=${CLIENTID} --secret=${SECRET} --code=${CODE}
