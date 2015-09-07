@@ -1,0 +1,40 @@
+#/usr/bin/bash
+#
+# set -x # for debugging...
+
+if [ -d stravalib ]
+then
+	pushd stravalib
+
+	git pull
+else
+	git clone https://github.com/hozn/stravalib.git
+
+	pushd stravalib
+fi
+
+git clean -fdx
+
+popd
+
+INST=false
+
+if [ ! -d env ]
+then
+	pip3 install --upgrade virtualenv
+
+	python3 -m virtualenv --no-site-packages --distribute env
+
+	INST=true
+fi
+
+source env/bin/activate
+
+if ${INST}
+then
+	pushd stravalib
+
+	python3 setup.py develop
+
+	popd
+fi
