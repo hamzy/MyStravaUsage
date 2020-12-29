@@ -1,5 +1,6 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 #
+# https://developers.strava.com/
 # https://strava.github.io/api/
 #
 # https://www.strava.com/settings/api
@@ -10,40 +11,32 @@
 #
 # https://pythonhosted.org/stravalib/index.html
 #
-# (if [ -d stravalib ]; then pushd stravalib; git pull; else git clone https://github.com/hozn/stravalib.git && pushd stravalib; fi; git clean -fdx)
+# Step #0 active the python virtual environment
+#     python3 -m virtualenv --no-site-packages --distribute venv
+#     source venv/bin/activate
+#     pip3 install stravalib
+#     pip3 install mechanize
 #
-# INST=false; if [ ! -d env ]; then pip3 install --upgrade virtualenv; python3 -m virtualenv --no-site-packages --distribute env; INST=true; fi; source env/bin/activate; if ${INST}; then pushd stravalib/; python3 setup.py develop; popd; fi; unset INST
+# Step #1 create a file with your password in it
+#     echo -n 'p4ssw0rd' > passfile
 #
-# Step #1 mandatory the first time, re-export data whenever you need to run this program
+# Step #2 mandatory the first time, re-export data whenever you need to run this program
 #     # Register with Strava at https://www.strava.com/settings/api and receive a clientid and a secret
 #     export CLIENTID=your_Client_ID
 #     export SECRET=your_Client_Secret
 #
-# Step #2 mandatory the first time, re-export data whenever you need to run this program
-#     # Find out the code= parameter
-#     python3 ./Strava.py --authorize --clientid=4030
-#     # Run firefox on the outputed URL
-#     # Copy the code= parameter on the new URL in the firefox browser
-#     export CODE=your_code
+# Step #3 run the program
+#     ./Strava.py --clientid=${CLIENTID} --secret=${SECRET} --username='hamzy@yahoo.com' --passfile=passfile
 #
-# To create the variables file:
-#     cat << '__EOF__' > variables
-#     export CLIENTID=your_Client_ID
-#     export SECRET=your_Client_Secret
-#     export CODE=your_code
-#     __EOF__
-#
-# To re-export your variables:
-#     source variables
-#
-# To setup your environment:
-#     ./configure
-#     source env/bin/activate
-#
-# Step #3
-#     # Run the program!
-#     python3 ./Strava.py --clientid=${CLIENTID} --secret=${SECRET} --code=${CODE}
-#
+
+# To download an activity:
+#   original - http://www.strava.com/activities/870974253/export_original
+#   TCX      - ihttp://www.strava.com/activities/870974253/export_tcx
+
+# https://strava.github.io/api/v3/streams/
+
+# https://pypi.org/project/stravalib/
+# https://github.com/hozn/stravalib
 
 # 0.1 on 2014-12-26
 __version__   = "0.1"
@@ -55,66 +48,100 @@ __version__   = "0.2"
 __date__      = "2015-09-07"
 __author__    = "Mark Hamzy (hamzy@yahoo.com)"
 
-import sys
+# 0.3 on 2020-12-26
+__version__   = "0.3"
+__date__      = "2020-12-26"
+__author__    = "Mark Hamzy (hamzy@yahoo.com)"
+
 import argparse
-import stravalib
 import datetime
-import units
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import mechanize
+from multiprocessing import Process
+import stravalib
+import sys
+import threading
+from urllib import parse
 
-def mondays_in_year (dt):
+class MyServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/html")
+        self.end_headers()
+        self.wfile.write(bytes("<html><head><title>Strava oauth response</title></head>", "utf-8"))
+        self.wfile.write(bytes("<body><p>Nothing to see here, the URL is what you want.</p></body></html>", "utf-8"))
 
-    list = []
-    year = dt.year
-    while dt.year == year:
-        list.append (dt)
-        dt -= datetime.timedelta(days=7)
+#web_thread = WebThread('localhost', 8282)
+#web_thread.start()
+#
+#class WebThread (threading.Thread):
+#    def __init__(self, hostName, port):
+#        threading.Thread.__init__(self)
+#        self.hostName = hostName
+#        self.port = port
+#
+#    def run(self):
+#        webServer = HTTPServer((self.hostName, self.port), MyServer)
+#
+#        try:
+#            webServer.serve_forever()
+#        except KeyboardInterrupt:
+#            pass
+#
+#        webServer.server_close()
 
-    return list
+def run_webserver(hostName, port):
+    webServer = HTTPServer((hostName, port), MyServer)
 
-def create_spin_classes (client):
+    try:
+        webServer.serve_forever()
+    except KeyboardInterrupt:
+        pass
 
-    title  = "Monday 5:45 Spin"
-    hour   = 17
-    minute = 45
-    for day in mondays_in_year (datetime.datetime (2014, 5, 12, hour, minute)):
-
-        activity = client.create_activity(title, "Ride", day, 2700, distance=19312.1)
-        print ("Creating %s returned activity %s" % (title, activity))
-
-        if activity is not None:
-            activity = client.update_activity(activity.id, gear_id="b1534808")
-            print ("Adding gear to activity returned %s" % (activity, ))
-
-    import pdb
-    pdb.set_trace()
+    webServer.server_close()
 
 if __name__ == "__main__":
 
     client = stravalib.client.Client ()
 
     parser = argparse.ArgumentParser(description='Perform Strava queries.')
-    parser.add_argument("-i", "--clientid",  action="store",      type=str,  dest="clientid",  help="Client ID")
-    parser.add_argument("-c", "--code",      action="store",      type=str,  dest="code",      help="Code")
-    parser.add_argument("-s", "--secret",    action="store",      type=str,  dest="secret",    help="Secret")
-    parser.add_argument("-a", "--authorize", action="store_true",            dest="authorize", help="Authorize")
-    parser.add_argument("-y", "--year",      action="store",      type=int,  dest="year",      help="Year",      default=datetime.date.today().year)
+    parser.add_argument("-i", "--clientid", action="store", type=str, required=True, dest="clientid", help="Client ID")
+    parser.add_argument("-p", "--passfile", action="store", type=str, required=True, dest="passfile", help="filename containing password")
+    parser.add_argument("-s", "--secret",   action="store", type=str, required=True, dest="secret",   help="Secret")
+    parser.add_argument("-u", "--username", action="store", type=str, required=True, dest="username", help="User Name")
+    parser.add_argument("-y", "--year",     action="store", type=int,                dest="year",     help="Year",      default=datetime.date.today().year)
 
     ns = parser.parse_args ()
 
-    if ns.authorize:
+    fp = open(ns.passfile, "r")
+    ns.password = fp.read()
+    fp.close()
 
-        if not ns.clientid:
-            parser.error ("missing --clientid")
+    # Strava oauth will use your target web server in its reply.  So make sure it is running.
+    p = Process(target=run_webserver, args=('localhost', 8282,))
+    p.start()
 
-        authorize_url = client.authorization_url(client_id=ns.clientid, redirect_uri="http://localhost/authorized", scope="view_private,write")
-        print (authorize_url)
-        input("Press Enter to continue...")
+    # Read the unauthenticated web page for the oauth URL.
+    br = mechanize.Browser()
+    br.set_handle_robots(False)
+    authorize_url = client.authorization_url(client_id=ns.clientid, redirect_uri='http://localhost:8282/authorized')
+    response1 = br.open(authorize_url)
+    br.select_form(nr=0)
+    br.form['email'] = ns.username
+    br.form['password'] = ns.password
+    # The form now has the user/password.  Try again.
+    response2 = br.submit()
+    # The response URL has the necessary code value.
+    # print (br.geturl())
+    # http://localhost:8282/authorized?state=&code=f114ae415a3af02c2710409072868752aaf3c39f&scope=read,activity:read
+    oauth_dict = parse.parse_qs(parse.urlsplit(br.geturl()).query)
+    # {'code': ['f114ae415a3af02c2710409072868752aaf3c39'], 'scope': ['read,activity:read']}
+    ns.code = oauth_dict['code']
 
-    if not ns.clientid or not ns.code or not ns.secret:
+    # Kill the process running the web server.
+    p.terminate()
 
-        parser.print_help ()
-        parser.error ("missing one or more required arguments")
-
+    # The last step in the oauth protocol.
     access_token = client.exchange_code_for_token(client_id=ns.clientid,
                                                   client_secret=ns.secret,
                                                   code=ns.code)
@@ -131,17 +158,26 @@ if __name__ == "__main__":
 #   dtBegin = datetime.datetime (ns.year, 12, 22)
 #   dtEnd   = datetime.datetime (ns.year, 12, 23)
 
-    activities = client.get_activities(before=dtEnd, after=dtBegin)
-    results    = list(activities)
+    activities   = client.get_activities(before=dtEnd, after=dtBegin)
+    results      = list(activities)
 
-    bike_rides = {'distance' : 0.0, 'number': 0}
-    rpm_rides  = {'distance' : 0.0, 'number': 0}
-    runs       = {'distance' : 0.0, 'number': 0}
-    swims      = {'distance' : 0.0, 'number': 0}
+    bike_rides    = {'distance' : 0.0, 'number': 0}
+    rpm_rides     = {'distance' : 0.0, 'number': 0}
+    indoor_runs   = {'distance' : 0.0, 'number': 0}
+    outdoor_runs  = {'distance' : 0.0, 'number': 0}
+    swims         = {'distance' : 0.0, 'number': 0}
+    yogas         = {'distance' : 0.0, 'number': 0}
+
+    activity_days = {}
 
     for activity in results:
 
         print ("Processing %s" % (activity.name,))
+
+        if activity.calories != None:
+            print ("CALORIES: %s", (activity,))
+
+        activity_days[activity.start_date.timetuple().tm_yday] = True
 
         distance = stravalib.unithelper.miles(activity.distance).num
 
@@ -156,14 +192,17 @@ if __name__ == "__main__":
                 print("Error: Unknown gear type of '%s'" % (activity.gear_id,), file=sys.stderr)
                 continue
 
-        elif activity.type == 'Run':
-            activity_map = runs
+        elif activity.type == 'Run' and activity.start_latlng is None:
+            activity_map = indoor_runs
+
+        elif activity.type == 'Run' and activity.start_latlng is not None:
+            activity_map = outdoor_runs
 
         elif activity.type == 'Swim':
             activity_map = swims
 
         elif activity.type == 'Yoga':
-            pass
+            activity_map = yogas
 
         else:
             print("Error: Unknown activity type of '%s'" % (activity.type,), file=sys.stderr)
@@ -172,10 +211,13 @@ if __name__ == "__main__":
         activity_map['distance'] += distance
         activity_map['number'] += 1
 
-    print ("There were %d RPM classes" % (rpm_rides['number'],))
-    print ("There were %d bike rides for %f miles" % (bike_rides['number'], bike_rides['distance'],))
-    print ("There were %d runs       for %f miles" % (runs['number'],  runs['distance'],))
-    print ("There were %d swims      for %f miles" % (swims['number'], swims['distance'],))
+    print ("You have been active for %d days this year" % (len(activity_days),))
+    print ("There were %3d RPM classes" % (rpm_rides['number'],))
+    print ("There were %3d Yoga classes" % (yogas['number'],))
+    print ("There were %3d outdoor bike rides for %f miles" % (bike_rides['number'], bike_rides['distance'],))
+    print ("There were %3d elliptical runs    for %f miles" % (indoor_runs['number'],  indoor_runs['distance'],))
+    print ("There were %3d outdoor runs       for %f miles" % (outdoor_runs['number'],  outdoor_runs['distance'],))
+    print ("There were %3d swims              for %f miles" % (swims['number'], swims['distance'],))
 
     # (_, num_week, _) = datetime.date.today().isocalendar()
 
